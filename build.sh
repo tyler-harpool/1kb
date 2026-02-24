@@ -6,7 +6,7 @@ cargo test
 
 echo "Assembling WASM from WAT..."
 mkdir -p dist
-wasm-tools parse minimal.wat -o dist/onekb.wasm
+wasm-tools parse plasma.wat -o dist/onekb.wasm
 
 B64=$(base64 -i dist/onekb.wasm | tr -d '\n')
 
