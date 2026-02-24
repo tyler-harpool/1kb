@@ -6,11 +6,12 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-/// Square function: returns x * x.
-/// Used as page gate — nonzero input = truthy result = page renders.
+/// Population count: returns number of set bits in x.
+/// Used as content gate — zero input (no hash) = 0 = page stays blank,
+/// nonzero input (hash present) = positive = page renders.
 #[unsafe(no_mangle)]
 pub extern "C" fn f(x: i32) -> i32 {
-    x * x
+    x.count_ones() as i32
 }
 
 #[cfg(test)]
@@ -18,17 +19,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn square_of_13() {
-        assert_eq!(f(13), 169);
+    fn hash_length_15() {
+        // "# Tyler Harpool".len() = 15, popcnt(15) = 4
+        assert_eq!(f(15), 4);
     }
 
     #[test]
-    fn square_of_zero_is_falsy() {
+    fn empty_hash_is_falsy() {
         assert_eq!(f(0), 0);
     }
 
     #[test]
-    fn square_of_negative() {
-        assert_eq!(f(-5), 25);
+    fn any_nonzero_is_truthy() {
+        assert!(f(1) > 0);
+        assert!(f(7) > 0);
+        assert!(f(100) > 0);
     }
 }
