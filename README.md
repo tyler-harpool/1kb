@@ -5,8 +5,8 @@ There's a site called [1kb.club](https://1kb.club/) that ranks the lightest webs
 This is the story of every dumb thing I tried, what actually worked, and the mass of dead ends in between.
 
 **Lightest build:** 245 bytes
-**Current build:** 314 bytes (with a favicon trick and a source link)
-**Live:** [tyler-harpool.github.io/1kb/#TylerHarpool](https://tyler-harpool.github.io/1kb/#TylerHarpool)
+**Current build:** 958 bytes (WASM plasma canvas animation + source link)
+**Live:** [tyler-harpool.github.io/1kb/#TylerHarpool|SolutionsArchitect](https://tyler-harpool.github.io/1kb/#TylerHarpool|SolutionsArchitect)
 
 ---
 
@@ -102,7 +102,7 @@ Inline assignment `(h=location.hash).length` instead of `h=location.hash;...h.le
 
 Dropping `</a>` on the source link saves **4 bytes**. The browser auto-closes it. cenzontle.us does this too — they never close their `<a>` tag either.
 
-`<link rel=icon href=data:,>` prevents the browser from requesting `/favicon.ico`. Costs 27 bytes in HTML but prevents an entire extra HTTP round trip. cenzontle.us taught me this one.
+`<link rel=icon href=data:,>` prevents the browser from requesting `/favicon.ico`. Costs 27 bytes in HTML but prevents an entire extra HTTP round trip. cenzontle.us taught me this one. In later rounds, I dropped it entirely — 27 bytes is a lot when you're adding features, and the 404 favicon request is harmless. The browser just logs a console error nobody sees.
 
 ## Round 8: The Part I Didn't Expect
 
@@ -135,7 +135,10 @@ This is an unsolved problem for me. I deployed to Cloudflare Workers for more he
 | Stripped to pure function | 250 | Killed the animation, kept the WASM honest |
 | **URL hash + onload + popcnt** | **245** | **Lightest. Name in URL, WASM validates content** |
 | + favicon suppressor | 272 | Prevents extra HTTP request |
-| + source link | 314 | Current deployed version |
+| + source link | 314 | Minimal deployed version |
+| WASM plasma canvas | 992 | Live 80x40 canvas animation driven by WASM |
+| + source link, drop closing tags | 1022 | Browser auto-closes tags, merged CSS selectors |
+| + CSS optimize, drop favicon | **958** | **Current. Merged shared CSS, dropped redundant props** |
 
 The lightest version is 245 bytes of HTML wrapping a 36-byte WASM binary that runs a single CPU instruction. Whether that counts as "using WebAssembly" is debatable. Whether it was worth the effort is definitely not — it wasn't. But I learned more about WASM binary encoding, HTML parsing quirks, HTTP header overhead, and the cost of a single floating-point modulo than I would have in a month of normal development.
 
