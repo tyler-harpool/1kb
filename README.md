@@ -1,212 +1,148 @@
-# Building the World's Smallest WASM Website
+# How I Tried to Build the Smallest WASM Website on the Internet
 
-**Goal:** Beat the #1 spot on [1kb.club](https://1kb.club/) — a leaderboard for websites under 1KB of total transfer weight — while actually using WebAssembly for something real.
+There's a site called [1kb.club](https://1kb.club/) that ranks the lightest websites on the internet by total transfer weight. The #1 spot belongs to [cenzontle.us](https://cenzontle.us) at 252 bytes. I wanted to see if I could beat it — and I wanted to do it with WebAssembly, which is arguably the worst possible technology choice for this goal.
 
-**Lightest version:** 245 bytes. Just WASM + hash + onload. No extras.
-**Current version:** 314 bytes. Adds favicon suppressor and source link.
+This is the story of every dumb thing I tried, what actually worked, and the mass of dead ends in between.
 
-Both powered by a 36-byte WASM binary that gates page rendering through a CPU bit-manipulation instruction.
-
+**Lightest build:** 245 bytes
+**Current build:** 314 bytes (with a favicon trick and a source link)
 **Live:** [tyler-harpool.github.io/1kb/#TylerHarpool](https://tyler-harpool.github.io/1kb/#TylerHarpool)
 
 ---
 
-## The Architecture
+## Why WASM?
 
-```
-URL: tyler-harpool.github.io/1kb/#TylerHarpool
-                                  └── name lives here (0 bytes in HTML)
+Honestly, because it's a terrible idea. WASM has overhead — module headers, section encoding, type definitions. Cramming it into a sub-300 byte page is solving a problem nobody has. But that's kind of the point. cenzontle.us is 169 bytes of clean HTML and CSS. No JavaScript, no WASM, no nonsense. It's elegant. I wanted to see if you could get anywhere close while carrying the weight of a compiled binary.
 
-Browser loads 245-byte HTML (314 with favicon + source link)
-  → onload fires
-  → 36-byte WASM instantiated from inline base64
-  → f(location.hash.length) → popcnt(14) = 3 (truthy)
-  → body.append(location.hash) → "#TylerHarpool" rendered
+Spoiler: you can, but you'll question your life choices along the way.
 
-No hash? → f(0) → popcnt(0) = 0 (falsy) → black void
-```
+## Round 1: Picking the Wrong Target
 
-The entire WASM module in WAT:
+I started with Rust compiled to `wasm32-wasip2` because that's what the docs suggest. An empty module — literally nothing in it — compiled to **13KB**. Thirteen thousand bytes. For nothing. The WASI component model wraps everything in adapter layers and canonical ABI scaffolding. It's the right choice for real applications. It's the wrong choice when your entire budget is 1,024 bytes.
+
+Switching to `wasm32-unknown-unknown` got an empty module down to **86 bytes**. Still felt like a lot for doing nothing, but at least we were in the right order of magnitude.
+
+## Round 2: The Animation That Wouldn't Fit
+
+The original plan was ambitious: a canvas animation with wave effects, glowing text, pulsing colors. I implemented a Taylor series `sin()` approximation in Rust. The WASM binary came out to **869 bytes**. The entire page budget is 1,024.
+
+The biggest surprise was where the bytes went. Rust's `%` operator on floating point numbers compiles to a full software `fmod` implementation. One modulo operator cost roughly **400 bytes**. A single `%`. I stared at the disassembly for a while.
+
+Removing the modulo (and letting JavaScript handle range normalization instead) plus switching to Horner form for the polynomial got WASM down to **133 bytes** after `wasm-opt -Oz`. Still too big for what I was after, but I learned something important: at this scale, you can't just write Rust and hope the optimizer saves you. You need to know what every line compiles to.
+
+I also learned that a 3-term Taylor series falls apart at pi. The error was 0.52 against a 0.1 tolerance. Had to add the x^7 term. Ask me how long I spent debugging that before checking the math.
+
+## Round 3: Giving Up on the Compiler
+
+Even with `#![no_std]`, `opt-level = "z"`, LTO, and strip, the Rust compiler adds things you didn't ask for:
+
+- A `memory` section (I wasn't using memory)
+- `__data_end` and `__heap_base` exports (I didn't want exports)
+- Extra type section padding
+
+About 36 bytes of pure overhead on a function that was 5 bytes of actual logic.
+
+So I gave up on compiling Rust to WASM. Instead, I wrote the WAT (WebAssembly Text Format) by hand and kept the Rust source around only for `cargo test`. The tests run natively — they never touch WASM. The hand-tuned WAT is what actually ships.
+
+This felt like admitting defeat, but it dropped the binary from 133 bytes to **73 bytes**, and later to **38 bytes** for a simple `f(x) = x * x` function. The final version uses `i32.popcnt` (population count — counts the set bits in an integer) which got it to **36 bytes** because the function body is just two opcodes.
+
+The entire WASM module:
 
 ```wat
 (module (func (export "f") (param i32) (result i32) local.get 0 i32.popcnt))
 ```
 
-One function. One CPU instruction. 36 bytes compiled.
+That's it.
+
+## Round 4: Minifying the HTML
+
+The first page that worked came in at **994 bytes**. Sub-1KB, technically, but not competitive. Here's what I learned about HTML golf:
+
+`bgcolor=0` works. The browser interprets `0` as black. Saves 3 bytes over `bgcolor=#000`. I don't know why this works and I'm afraid to look it up in case it's undefined behavior.
+
+Base64 is better than hex. I was encoding the WASM binary as a hex byte array (365 characters for 73 bytes). Switching to base64 and `atob()` got the same data into 100 characters. The decoder is free — every browser has it.
+
+Synchronous WASM instantiation is shorter than async. `new WebAssembly.Instance(new WebAssembly.Module(...))` looks verbose, but it avoids the `.then()` callback chain. Aliasing `W=WebAssembly` saves a few more.
+
+You don't need `<!DOCTYPE>`, `<html>`, `<head>`, `<body>`, or any closing tags. The browser figures it out. This isn't news to anyone who's done code golf, but it still felt wrong.
+
+The `instantiateStreaming` API with a data URI seemed promising but wasn't. The async overhead and data URI prefix cost more than they save.
+
+## Round 5: The Existential Crisis at 250 Bytes
+
+To actually beat cenzontle.us at 252, I had to strip the canvas animation entirely. No effects, no color cycling, no sin waves. The question became: what's the smallest meaningful thing WASM can do?
+
+My first answer was embarrassing. I made WASM return `1`. That's it. The function took no input, did no computation, just returned a constant. The page checked if the result was truthy and rendered my name. **247 bytes.** Five bytes under the leader.
+
+Then I looked at it and thought: this isn't a WASM site. This is an HTML site with a WASM binary duct-taped to the side doing nothing. If you removed the WASM entirely and just wrote `document.write('Tyler Harpool')`, the page would be smaller.
+
+So I gave WASM a real job. The function `f(x) = x * x` takes the length of my name (13) and returns 169. Truthy → page renders. Pass in 0 → returns 0 → blank page. It's a gate. The computation is tied to the content. Not the most impressive use of a compiled binary, but it's honest. **250 bytes.**
+
+## Round 6: Storing My Name in the URL
+
+This one came from reading [Scott Antipa's post about storing app state in URL hash fragments](https://www.scottantipa.com/store-app-state-in-urls). The hash fragment (`#whatever`) is never sent to the server. It's purely client-side. And `location.hash` is 13 characters to read in JavaScript.
+
+So I moved my name out of the HTML and into the URL:
+
+```
+tyler-harpool.github.io/1kb/#TylerHarpool
+```
+
+The name costs **0 bytes** in the response. The browser already has it. WASM now validates that a hash exists — `f(location.hash.length)` returns 0 when there's no hash (blank page) and nonzero when there is (render the name). The WASM function went from decorative to functional: it decides whether there's content worth displaying.
+
+I immediately hit a wall with spaces. `# Tyler Harpool` in the URL becomes `#%20Tyler%20Harpool` on screen because `location.hash` doesn't decode percent-encoding. `decodeURI()` costs 12 bytes. So I just dropped the spaces. `#TylerHarpool`. On a green-on-black terminal page, the `#` prefix looks like a shell prompt. I'm calling it a feature.
+
+## Round 7: Death by a Thousand Bytes
+
+Small wins that added up:
+
+Moving JavaScript from `<script>...</script>` into `<body onload="...">` saves **7 bytes** because `">` is shorter than `</script>`.
+
+Inline assignment `(h=location.hash).length` instead of `h=location.hash;...h.length` saves **1 byte** by eliminating the semicolon and the separate statement.
+
+Dropping `</a>` on the source link saves **4 bytes**. The browser auto-closes it. cenzontle.us does this too — they never close their `<a>` tag either.
+
+`<link rel=icon href=data:,>` prevents the browser from requesting `/favicon.ico`. Costs 27 bytes in HTML but prevents an entire extra HTTP round trip. cenzontle.us taught me this one.
+
+## Round 8: The Part I Didn't Expect
+
+After all that HTML and WASM optimization, the biggest problem turned out to be **HTTP headers**.
+
+1kb.club measures total transfer weight. That includes response headers. I checked:
+
+- **cenzontle.us:** 84 bytes of headers. Three headers total.
+- **GitHub Pages:** 670 bytes of headers. Twenty-something headers. CDN metadata, cache directives, Varnish identifiers, Fastly request IDs.
+
+My 314-byte page had 670 bytes of headers wrapped around it. The headers were twice the size of the content. The hosting platform was the bottleneck, not the code.
+
+cenzontle.us runs on what appears to be a custom server that returns exactly three headers: `Content-Type`, `Content-Length`, `Connection`. That's 84 bytes. Minimalism all the way down.
+
+This is an unsolved problem for me. I deployed to Cloudflare Workers for more header control, but that domain got blocked by my network's Jamf security policy. The GitHub Pages version works but carries the header tax. I'm still looking for the right minimal hosting setup.
 
 ---
 
-## The Journey: Every Optimization, Every Dead End
+## Where It Landed
 
-### Round 1: The Wrong Target (13KB → 86 bytes)
-
-**Failure: `wasm32-wasip2`**
-
-Started with Rust targeting `wasm32-wasip2`. An empty module compiled to **13KB**. The WASI component model wraps every module in adapter layers, type definitions, and canonical ABI scaffolding. For a 1KB budget, this is a non-starter.
-
-**Fix:** Switched to `wasm32-unknown-unknown`. An empty module: **86 bytes**. The freestanding target strips all platform assumptions. This was the first real decision — abandon the "proper" WASI ecosystem for raw, minimal output.
-
-### Round 2: Sin Approximation (869 → 133 bytes)
-
-**Failure: Floating-point modulo**
-
-Built a `tick()` animation function with a Taylor series `sin()` approximation for wave/glow/pulse effects. The WASM binary hit **869 bytes**. The main culprit: Rust's `%` operator on `f32` compiles to a software `fmod` implementation — a massive function the linker pulls in. One operator cost ~400 bytes.
-
-**Fix:** Removed float modulo entirely. Let JavaScript handle range normalization. Also switched the Taylor series to Horner form for fewer instructions. WASM dropped to **133 bytes** after `wasm-opt -Oz`.
-
-**Failure: 3-term Taylor series at pi**
-
-The 3-term sin approximation (through x^5/120) had 0.52 error at pi, failing the 0.1 tolerance test.
-
-**Fix:** Added a 4th term (x^7/5040). Tests passed across the range.
-
-### Round 3: Hand-Written WAT (133 → 73 → 38 bytes)
-
-**The Rust compiler adds bloat you can't configure away.** Even with `#![no_std]`, `opt-level = "z"`, LTO, and strip, the compiled WASM contained:
-
-- A `memory` section (even when unused)
-- `__data_end` and `__heap_base` exports
-- Extra type section entries
-
-**Fix:** Wrote the WAT by hand. Kept the Rust source only for `cargo test` (native tests, never compiled to WASM). The hand-written WAT became the source of truth for the binary. This was a key architectural decision: Rust for testing, WAT for production.
-
-A minimal function with no memory, no globals, no unnecessary exports: **38 bytes** for `f(x) = x * x`.
-
-Later, switching to `i32.popcnt` (population count — a single CPU instruction) dropped it to **36 bytes** because the function body shrank from 5 opcodes to 2.
-
-### Round 4: HTML Minimization (994 → 250 bytes)
-
-**Failure: Hex byte array encoding**
-
-Initially encoded the WASM binary as a hex byte array in JavaScript. For a 73-byte binary, the hex representation was **365 characters**.
-
-**Fix:** Base64 encoding. The same 73 bytes became **100 characters**. Saved 265 bytes in one change. We already had `atob()` available — free decoder built into every browser.
-
-**Key HTML tricks that worked:**
-
-| Technique | Bytes saved |
-|---|---|
-| `bgcolor=0` instead of `bgcolor=#000` | 3 |
-| `W=WebAssembly;new W.Instance(new W.Module(...))` alias | 10 |
-| Synchronous instantiation (no `.then()` callback) | ~20 |
-| `&&document.write(...)` conditional gate | ~15 |
-| No `<html>`, `<head>`, `<!DOCTYPE>` tags | ~40 |
-| No closing `</body>`, `</html>` tags | ~15 |
-
-**What didn't work: `instantiateStreaming` with data URI.** The async API requires a `.then()` chain and the data URI overhead negates any binary savings.
-
-### Round 5: Beating #1 — The 250-Byte Wall
-
-The previous #1, [cenzontle.us](https://cenzontle.us), sat at **252 bytes**. Our canvas animation version was 898 bytes — not close. Everything had to go.
-
-**Decision: Strip the animation entirely.** The question became: what's the smallest meaningful thing WASM can do?
-
-**Failure: WASM returning a constant**
-
-First attempt at minimal: WASM exports a function that returns `1`. Page renders if truthy. **247 bytes.** But WASM was doing literally nothing — just returning a hardcoded value. That's not using WASM, that's carrying it as dead weight.
-
-**Fix: Pure function gate.** WASM exports `f(x) = x * x`. JavaScript calls `f(13)` where 13 is the length of "Tyler Harpool". Returns 169 (truthy), page renders. `f(0)` would return 0 (falsy), page stays blank. The WASM computation has a semantic connection to the content. **250 bytes.**
-
-### Round 6: URL Hash as Data Store (250 → 245 bytes)
-
-Inspired by [Scott Antipa's article on storing app state in URLs](https://www.scottantipa.com/store-app-state-in-urls): the URL hash fragment is client-side only, never sent to the server, and `location.hash` is dirt cheap to access.
-
-**The insight:** Move the name from the HTML into the URL. The name costs 0 bytes in the response because it lives in the hash fragment.
-
-```
-https://tyler-harpool.github.io/1kb/#TylerHarpool
-                                     └── free, client-side only
-```
-
-Now WASM validates that content exists: `f(location.hash.length)` returns 0 for empty hash (blank page) and nonzero for present hash (render). WASM became the **content gate** — it decides whether there's anything worth displaying.
-
-**Failure: Spaces in hash → `%20` encoding**
-
-`location.hash` does NOT decode percent-encoding. `# Tyler Harpool` in the URL renders as `#%20Tyler%20Harpool`. Adding `decodeURI()` costs 12 bytes — more than we saved.
-
-**Fix:** Drop the spaces. `#TylerHarpool`. Clean URL, clean display. The `#` prefix reads like a markdown heading or shell prompt on the green-on-black terminal aesthetic.
-
-### Round 7: `onload` vs `<script>` (245 → 245 bytes, then +favicon)
-
-**The `onload` attribute trick:** `</script>` costs 9 bytes. `">` costs 2 bytes. Moving JavaScript from a `<script>` tag into `<body onload="...">` saves **7 bytes**.
-
-Combined with inline assignment `(h=location.hash).length` instead of a separate `h=location.hash;` declaration, we squeezed out another byte.
-
-**Inline favicon (`<link rel=icon href=data:,>`):** Borrowed from cenzontle.us. Without it, the browser requests `/favicon.ico` — a whole extra HTTP response. The 27-byte inline data URI prevents that request entirely. Costs bytes in HTML but saves hundreds in total transfer weight.
-
-### Round 8: The Header Problem
-
-**1kb.club measures total transfer weight** — that includes HTTP response headers.
-
-| Host | Header bytes | Body bytes | Total |
-|---|---|---|---|
-| cenzontle.us | 84 | 169 | 253 |
-| GitHub Pages | 670 | 314 | 984 |
-| Cloudflare Workers | ~150 | 314 | ~464 |
-
-GitHub Pages injects 20+ headers (CDN cache metadata, security headers, Varnish/Fastly identifiers). cenzontle.us runs a minimal server with just 3 headers: `Content-Type`, `Content-Length`, `Connection`.
-
-**Deployed to Cloudflare Workers** for header control. The worker returns only what's necessary:
-
-```javascript
-export default {
-  async fetch() {
-    return new Response(HTML, {
-      headers: { "content-type": "text/html" },
-    });
-  },
-};
-```
-
----
-
-## Size Progression
-
-| Version | Bytes | What changed |
+| Version | Bytes | Notes |
 |---|---|---|
-| WASI component model | 13,000+ | Wrong target |
-| `wasm32-unknown-unknown` empty | 86 | Right target |
-| sin() animation | 869 | Float modulo bloat |
+| WASI target | 13,000+ | Wrong target entirely |
+| Empty `wasm32-unknown-unknown` | 86 | Starting point |
+| sin() animation | 869 | One `%` operator cost 400 bytes |
 | sin() optimized | 133 | Removed fmod, Horner form |
-| Hand-written WAT | 73 | Stripped compiler bloat |
-| Canvas animation page | 994 | First sub-1KB build |
+| Hand-written WAT | 73 | Compiler adds ~36 bytes of bloat |
+| First working page | 994 | Sub-1KB with canvas animation |
 | Base64 encoding | 924 | Hex → base64 saved 265 chars |
-| Minified HTML | 898 | Attribute tricks |
-| WASM gate + document.write | 250 | Stripped animation, pure function |
-| **URL hash + onload + popcnt** | **245** | **Lightest build. Name in URL, smaller WASM** |
+| Stripped to pure function | 250 | Killed the animation, kept the WASM honest |
+| **URL hash + onload + popcnt** | **245** | **Lightest. Name in URL, WASM validates content** |
 | + favicon suppressor | 272 | Prevents extra HTTP request |
-| + source link (current) | 314 | GitHub link, no closing `</a>` |
+| + source link | 314 | Current deployed version |
 
----
+The lightest version is 245 bytes of HTML wrapping a 36-byte WASM binary that runs a single CPU instruction. Whether that counts as "using WebAssembly" is debatable. Whether it was worth the effort is definitely not — it wasn't. But I learned more about WASM binary encoding, HTML parsing quirks, HTTP header overhead, and the cost of a single floating-point modulo than I would have in a month of normal development.
 
-## What We Learned
-
-**The Rust compiler is not your friend at this scale.** Below ~200 bytes, hand-written WAT beats any compiler output. Rust's value is in testing — `cargo test` validates the logic natively while the production binary is hand-tuned.
-
-**Base64 is the right encoding.** Every browser has `atob()`. For small binaries, base64 is more compact than hex arrays and the decoder is free.
-
-**URL fragments are free storage.** The hash is never sent to the server. `location.hash` costs 13 characters to read. For content that doesn't need to be indexed by search engines, it's the cheapest data store available.
-
-**HTTP headers matter more than you think.** A 314-byte page can have 670 bytes of headers on GitHub Pages. The response body is less than half the total transfer. Hosting choice is an optimization.
-
-**Every byte has a story.** `bgcolor=0` saves 3 bytes over `bgcolor=#000`. Dropping `</a>` saves 4. Using `onload` instead of `<script>` saves 7. Using `i32.popcnt` instead of `i32.mul` saves 4 bytes of base64. None of these matter in normal web development. At 314 bytes, they're the whole game.
-
----
-
-## Build It Yourself
+If you want to poke at it: [github.com/tyler-harpool/1kb](https://github.com/tyler-harpool/1kb)
 
 ```bash
-git clone https://github.com/tyler-harpool/1kb
-cd 1kb
-# Requires: cargo, wasm-tools (cargo install wasm-tools)
-bash build.sh
-# Open dist/index.html in a browser with #YourName in the URL
+git clone https://github.com/tyler-harpool/1kb && cd 1kb
+bash build.sh  # needs cargo + wasm-tools
+# open dist/index.html#YourName in a browser
 ```
-
-## Stack
-
-- **Rust** — testing only (`cargo test`)
-- **WAT** — hand-written WebAssembly Text Format (source of truth)
-- **wasm-tools** — WAT → WASM assembly
-- **Cloudflare Workers** — minimal-header hosting
-- **GitHub Pages** — CI/CD with size guard (rejects builds over 1024 bytes)
