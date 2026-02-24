@@ -6,11 +6,11 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-/// Gate function: returns 1 to signal WASM loaded successfully.
-/// Used by JS to conditionally render the page content.
+/// Square function: returns x * x.
+/// Used as page gate — nonzero input = truthy result = page renders.
 #[unsafe(no_mangle)]
-pub extern "C" fn o() -> i32 {
-    1
+pub extern "C" fn f(x: i32) -> i32 {
+    x * x
 }
 
 #[cfg(test)]
@@ -18,7 +18,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gate_returns_one() {
-        assert_eq!(o(), 1);
+    fn square_of_13() {
+        assert_eq!(f(13), 169);
+    }
+
+    #[test]
+    fn square_of_zero_is_falsy() {
+        assert_eq!(f(0), 0);
+    }
+
+    #[test]
+    fn square_of_negative() {
+        assert_eq!(f(-5), 25);
     }
 }
