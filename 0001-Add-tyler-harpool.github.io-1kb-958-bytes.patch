@@ -1,0 +1,25 @@
+From d0991472531e9e5896da7a0652de2e2d2af46f67 Mon Sep 17 00:00:00 2001
+From: Tyler Harpool <tharpool@jhacorp.com>
+Date: Tue, 24 Feb 2026 02:12:31 -0600
+Subject: [PATCH] Add tyler-harpool.github.io/1kb/ (958 bytes)
+
+WASM-powered personal site with live plasma canvas animation.
+47-byte WebAssembly binary inline as base64, hand-written WAT.
+---
+ _site_listings/tyler-harpool.github.io.1kb.md | 4 ++++
+ 1 file changed, 4 insertions(+)
+ create mode 100644 _site_listings/tyler-harpool.github.io.1kb.md
+
+diff --git a/_site_listings/tyler-harpool.github.io.1kb.md b/_site_listings/tyler-harpool.github.io.1kb.md
+new file mode 100644
+index 0000000..696f678
+--- /dev/null
++++ b/_site_listings/tyler-harpool.github.io.1kb.md
+@@ -0,0 +1,4 @@
++---
++pageurl: tyler-harpool.github.io/1kb/#TylerHarpool|SolutionsArchitect
++size: 958
++---
+-- 
+2.50.1 (Apple Git-155)
+
