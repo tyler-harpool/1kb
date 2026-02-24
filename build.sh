@@ -16,10 +16,15 @@ sed "s|/\*W\*/|$B64|" template.html > dist/index.html
 WASM_SIZE=$(wc -c < dist/onekb.wasm | tr -d ' ')
 HTML_SIZE=$(wc -c < dist/index.html | tr -d ' ')
 GZIP_SIZE=$(gzip -c dist/index.html | wc -c | tr -d ' ')
+BR_SIZE=$(brotli -c dist/index.html | wc -c | tr -d ' ')
 
 echo ""
 echo "=== Size Report ==="
-echo "WASM:           ${WASM_SIZE} bytes"
-echo "HTML (final):   ${HTML_SIZE} bytes"
-echo "HTML (gzipped): ${GZIP_SIZE} bytes"
-echo "Budget left:    $((1024 - HTML_SIZE)) bytes (uncompressed)"
+echo "WASM:             ${WASM_SIZE} bytes"
+echo "HTML (raw):       ${HTML_SIZE} bytes"
+echo "HTML (gzip):      ${GZIP_SIZE} bytes"
+echo "HTML (brotli):    ${BR_SIZE} bytes"
+echo "Budget (raw):     $((1024 - HTML_SIZE)) bytes remaining"
+echo "Budget (brotli):  $((1024 - BR_SIZE)) bytes remaining"
+echo ""
+echo "Serve locally: miniserve dist --index index.html -p 8080"
