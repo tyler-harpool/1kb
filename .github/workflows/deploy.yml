@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install tools
+        run: |
+          cargo install wasm-tools
+          sudo apt-get install -y binaryen
+      - name: Build
+        run: bash build.sh
+      - name: Verify size
+        run: |
+          SIZE=$(wc -c < dist/index.html | tr -d ' ')
+          echo "Final size: $SIZE bytes"
+          if [ "$SIZE" -gt 1024 ]; then
+            echo "FAIL: $SIZE bytes exceeds 1024 byte limit"
+            exit 1
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
