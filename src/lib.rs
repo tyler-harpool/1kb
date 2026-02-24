@@ -1,4 +1,5 @@
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 #[cfg(not(test))]
 #[panic_handler]
@@ -6,8 +7,7 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-/// Sine approximation via Horner form.
-/// Caller must keep x in [-PI, PI] range.
+/// sin(x) for x in [-PI, PI]. Horner form, 4-term Taylor.
 #[unsafe(no_mangle)]
 pub extern "C" fn s(x: f32) -> f32 {
     let x2 = x * x;
